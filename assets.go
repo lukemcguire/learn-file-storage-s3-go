@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -74,4 +77,47 @@ func verifyMP4(file *os.File) (bool, error) {
 	}
 
 	return true, nil
+}
+
+func getVideoAspectRatio(filePath string) (string, error) {
+	type videoMetadata struct {
+		Streams []struct {
+			Width  int `json:"width"`
+			Height int `json:"height"`
+		} `json:"streams"`
+	}
+
+	cmd := exec.Command("ffprobe", "-v", "error", "-print_format", "json", "-show_streams", filePath)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	err := cmd.Run()
+	if err != nil {
+		return "", fmt.Errorf("error executing ffprobe: %w", err)
+	}
+
+	var metadata videoMetadata
+	err = json.Unmarshal(out.Bytes(), &metadata)
+	if err != nil {
+		return "", fmt.Errorf("error unmarshalling json data: %w", err)
+	}
+
+	// Access the first stream's width and height
+	if len(metadata.Streams) == 0 {
+		return "", fmt.Errorf("no streams found")
+	}
+	width := metadata.Streams[0].Width
+	height := metadata.Streams[0].Height
+
+	// Calculate ratio with float division
+	ratio := float64(width) / float64(height)
+
+	switch {
+	case 0.55 < ratio && ratio < 0.575:
+		return "9:16", nil
+	case 1.75 < ratio && ratio < 1.8:
+		return "16:9", nil
+	default:
+		return "other", nil
+
+	}
 }
